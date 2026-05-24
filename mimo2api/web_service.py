@@ -167,7 +167,7 @@ from .ui_router import router as ui_router
 app.include_router(ui_router)
 
 RETRYABLE_STATUS_CODES = {401, 403, 429}
-NODE_RESPONSE_TIMEOUT = 30
+NODE_RESPONSE_TIMEOUT = int(os.getenv("MIMO_NODE_RESPONSE_TIMEOUT", "600"))
 MAX_RETRIES = 3
 MAX_PENDING_QUEUES = 2000
 AI_ROUTE_PREFIXES = ("/v1/", "/anthropic/v1/")
@@ -234,7 +234,7 @@ def record_error(route: str, status_code: int, reason: str, model: str = "", det
         "request": request_body[:2000] if request_body else "",
     })
 
-STREAM_CHUNK_TIMEOUT = 60
+STREAM_CHUNK_TIMEOUT = int(os.getenv("MIMO_STREAM_CHUNK_TIMEOUT", "600"))
 STREAM_KEEPALIVE_INTERVAL = 25  # 秒，需小于 Cloudflare 超时 (~100s)
 QUEUE_DRAIN_TIMEOUT = 5
 DEFAULT_GATEWAY_ERROR = "Gateway Error: 所有节点请求失败"
@@ -689,7 +689,7 @@ async def audio_speech_handler(payload: AudioSpeechRequest):
 
         except asyncio.TimeoutError:
             retry_state.status_code = 504
-            retry_state.response_text = "Gateway Error: 请求内网节点超时 (30s)"
+            retry_state.response_text = f"Gateway Error: 请求内网节点超时 ({NODE_RESPONSE_TIMEOUT}s)"
             cleanup_pending_request(req_id)
             continue
         except RuntimeError as exc:
@@ -822,7 +822,7 @@ async def responses_handler(request: Request):
 
         except asyncio.TimeoutError:
             retry_state.status_code = 504
-            retry_state.response_text = "Gateway Error: 请求内网节点超时"
+            retry_state.response_text = f"Gateway Error: 请求内网节点超时 ({NODE_RESPONSE_TIMEOUT}s)"
             cleanup_pending_request(req_id)
             continue
         except Exception as e:
@@ -964,7 +964,7 @@ async def _forward_request(request: Request, path: str):
 
         except asyncio.TimeoutError:
             retry_state.status_code = 504
-            retry_state.response_text = "Gateway Error: 请求所有节点超时 (30s)"
+            retry_state.response_text = f"Gateway Error: 请求所有节点超时 ({NODE_RESPONSE_TIMEOUT}s)"
             cleanup_pending_request(req_id)
             continue
         except Exception as e:
