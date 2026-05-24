@@ -908,6 +908,9 @@ async def _forward_request(request: Request, path: str):
             status_code = first_msg.get("status", 200)
             first_byte_at = time.monotonic()
             content_type, response_headers = normalize_response_headers(first_msg.get("headers", {}))
+            if is_streaming:
+                response_headers["cache-control"] = "no-cache"
+                response_headers["x-accel-buffering"] = "no"
 
             async def stream_generator(current_req_id, current_queue, use_keepalive):
                 last_data_time = time.monotonic()
