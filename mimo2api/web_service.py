@@ -758,12 +758,35 @@ async def responses_handler(request: Request):
                 async def responses_stream_generator(current_req_id, current_queue):
                     last_data_time = time.monotonic()
                     stream_succeeded = False
+                    sse_buffer = ""
                     data_task = asyncio.ensure_future(current_queue.get())
 
                     async def _do_keepalive():
                         await asyncio.sleep(STREAM_KEEPALIVE_INTERVAL)
                         return b": keep-alive\n\n"
                     keepalive_task = asyncio.ensure_future(_do_keepalive())
+
+                    def _convert_buffered_sse_events(flush: bool = False) -> list[bytes]:
+                        nonlocal sse_buffer
+                        output: list[bytes] = []
+                        sse_buffer = sse_buffer.replace("\r\n", "\n")
+                        while "\n\n" in sse_buffer:
+                            event_text, sse_buffer = sse_buffer.split("\n\n", 1)
+                            for line in event_text.split("\n"):
+                                if not line.startswith("data:"):
+                                    continue
+                                for evt in converter.process_chunk(line):
+                                    output.append(evt.encode("utf-8"))
+
+                        if flush and sse_buffer.strip():
+                            event_text = sse_buffer
+                            sse_buffer = ""
+                            for line in event_text.split("\n"):
+                                if not line.startswith("data:"):
+                                    continue
+                                for evt in converter.process_chunk(line):
+                                    output.append(evt.encode("utf-8"))
+                        return output
 
                     try:
                         while True:
@@ -783,6 +806,8 @@ async def responses_handler(request: Request):
                             msg = done.pop().result()
                             if msg.get("type") == "finish":
                                 stream_succeeded = True
+                                for evt in _convert_buffered_sse_events(flush=True):
+                                    yield evt
                                 for evt in converter.finalize():
                                     yield evt.encode("utf-8")
                                 break
@@ -791,9 +816,9 @@ async def responses_handler(request: Request):
                                 yield err_evt.encode("utf-8")
                                 break
                             elif msg.get("type") == "chunk":
-                                for line in msg.get("body", "").split("\n"):
-                                    for evt in converter.process_chunk(line):
-                                        yield evt.encode("utf-8")
+                                sse_buffer += msg.get("body", "")
+                                for evt in _convert_buffered_sse_events():
+                                    yield evt
                     finally:
                         data_task.cancel()
                         keepalive_task.cancel()
