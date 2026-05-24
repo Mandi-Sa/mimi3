@@ -355,6 +355,7 @@ class ResponsesStreamConverter:
 
         self._next_out_idx = 0
         self._reasoning_out_idx: Optional[int] = None
+        self._reasoning_id = _generate_id("rs")
         self._reasoning_buf = ""
         self._reasoning_closed = False
         self._text_out_idx: Optional[int] = None
@@ -423,7 +424,7 @@ class ResponsesStreamConverter:
             yield from self._close_reasoning_item()
             yield from self._ensure_text_item_started()
             self._text_buf += content
-            yield _sse_event("response.output_text.delta", {"output_index": self._text_out_idx, "content_index": 0, "delta": content})
+            yield _sse_event("response.output_text.delta", {"item_id": self._msg_id, "output_index": self._text_out_idx, "content_index": 0, "delta": content})
 
         for tc in (delta.get("tool_calls") or []):
             yield from self._close_reasoning_item()
@@ -468,19 +469,20 @@ class ResponsesStreamConverter:
             msg_item = RespMessageItem(
                 id=self._msg_id, role="assistant", status="in_progress")
             yield _sse_event("response.output_item.added", {"output_index": self._text_out_idx, "item": msg_item})
-            yield _sse_event("response.content_part.added", {"output_index": self._text_out_idx, "content_index": 0, "part": {"type": "output_text", "text": ""}})
+            yield _sse_event("response.content_part.added", {"item_id": self._msg_id, "output_index": self._text_out_idx, "content_index": 0, "part": {"type": "output_text", "text": ""}})
 
     def _ensure_reasoning_item_started(self) -> Iterator[str]:
         yield from self._emit_response_created()
         if self._reasoning_out_idx is None:
             self._reasoning_out_idx = self._allocate_index()
-            reasoning_item = RespReasoningItem(status="in_progress", summary=[])
+            reasoning_item = RespReasoningItem(id=self._reasoning_id, status="in_progress", summary=[])
             yield _sse_event("response.output_item.added", {"output_index": self._reasoning_out_idx, "item": reasoning_item})
 
     def _close_reasoning_item(self) -> Iterator[str]:
         if self._reasoning_out_idx is not None and not self._reasoning_closed:
             self._reasoning_closed = True
             reasoning_item = RespReasoningItem(
+                id=self._reasoning_id,
                 status="completed",
                 summary=[],
                 encrypted_content=self._reasoning_buf,
@@ -492,7 +494,8 @@ class ResponsesStreamConverter:
             self._text_closed = True
             text_part = {"type": "output_text",
                          "text": self._text_buf, "annotations": []}
-            yield _sse_event("response.content_part.done", {"output_index": self._text_out_idx, "content_index": 0, "part": text_part})
+            yield _sse_event("response.output_text.done", {"item_id": self._msg_id, "output_index": self._text_out_idx, "content_index": 0, "text": self._text_buf})
+            yield _sse_event("response.content_part.done", {"item_id": self._msg_id, "output_index": self._text_out_idx, "content_index": 0, "part": text_part})
             msg_item = RespMessageItem(
                 id=self._msg_id, role="assistant", status="completed", content=[text_part])
             yield _sse_event("response.output_item.done", {"output_index": self._text_out_idx, "item": msg_item})
@@ -518,6 +521,7 @@ class ResponsesStreamConverter:
         resp = self._base_response("completed")
         if self._reasoning_out_idx is not None:
             resp.output.append(RespReasoningItem(
+                id=self._reasoning_id,
                 status="completed",
                 summary=[],
                 encrypted_content=self._reasoning_buf,
