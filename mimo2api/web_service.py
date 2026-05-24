@@ -963,7 +963,7 @@ async def _forward_request(request: Request, path: str):
             if status_code >= 400:
                 record_error(route_key, status_code, f"上游返回 {status_code}", detail=first_msg.get("body", "")[:300])
 
-            return StreamingResponse(stream_generator(req_id, queue, use_keepalive=is_streaming), status_code=status_code, media_type=content_type, headers=response_headers)
+            return StreamingResponse(stream_generator(req_id, queue, use_keepalive=False), status_code=status_code, media_type=content_type, headers=response_headers)
 
         except asyncio.TimeoutError:
             retry_state.status_code = 504
